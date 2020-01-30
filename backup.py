@@ -2,6 +2,8 @@
 Backup tool for windows
 """
 
+# TODO: logging to a file
+# TODO: config file with paths to check and paths to ignore
 # TODO: cleanup mode to remove files from backup that do not exist in origin
 # TODO: count of integrity check
 
@@ -65,7 +67,7 @@ def backup(origin):
     backuppath = make_backuppath(origin)
     if os.path.isdir(origin):
         if not os.path.isdir(backuppath):
-            logging.info(origin, "ADD")
+            logger.info(create_log_msg(origin, "ADD"))
             os.makedirs(backuppath)
     else:
         if os.path.isfile(backuppath):
@@ -76,12 +78,16 @@ def backup(origin):
                 logger.warning(create_log_msg(origin, "UPDATE"))
         else:
             logger.warning(create_log_msg(origin, "ADD"))
-        #copy2(origin, backuppath)
+        copy2(origin, backuppath)
 
 def check_integrity(origin):
     """
     Check the hash of the origin file and the destination file.
     """
+    # Check if integrity needs to be checked
+    if not args.check:
+        return
+    
     # Check if the file exists
     backuppath = make_backuppath(origin)
     if not os.path.isfile(backuppath):
@@ -116,15 +122,19 @@ if not os.path.isdir(backupdir):
 
 with open(os.path.join(os.path.abspath(os.curdir), 'paths.txt'), 'r') as f:
     paths = f.read().splitlines()
+logger.debug(f"Found following paths in file: {paths}")
 
 # Backup
 for path in paths:
     backup(path)
-    for file in os.listdir(path):
-        originpath = os.path.join(path, file)
-        if os.path.isdir(originpath) and originpath not in paths:
-            paths.append(originpath)
-            backup(originpath)
-        elif os.path.isfile(originpath):
-            backup(originpath)
-            check_integrity(originpath)
+    try:
+        for file in os.listdir(path):
+            originpath = os.path.join(path, file)
+            if os.path.isdir(originpath) and originpath not in paths:
+                paths.append(originpath)
+                backup(originpath)
+            elif os.path.isfile(originpath):
+                backup(originpath)
+                check_integrity(originpath)
+    except PermissionError:
+        logger.error(create_log_msg(path, "NO ACCESS"))
