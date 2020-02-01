@@ -6,6 +6,7 @@ Backup tool for windows
 # TODO: config file with paths to check and paths to ignore
 # TODO: delete excluded/ignored paths from backup that still exist on origin
 # TODO: count of integrity check
+# TODO: take backup drive as parameter when run
 
 import logging
 import os
@@ -13,6 +14,7 @@ import socket
 import argparse
 import hashlib
 import shutil
+import yaml
 
 ### CONSTANTS ###
 BUF_SIZE = 1048576  # 1 MB
@@ -127,6 +129,15 @@ def check_integrity(origin):
         else:
             logger.error(create_log_msg(backuppath, "CORRUPTED"))
 
+class Config:
+    """Class for configuration info"""
+    def __init__(self):
+        with open(os.path.join(os.path.abspath(os.curdir), 'config.yaml'), 'r') as f:
+            self.config = yaml.load(f)
+
+        self.paths = self.config.get('paths', [])
+        self.exclude = self.config.get('exclude', [])
+
 ### MAIN PROCESS ###
 backupdrive = "H"
 backupdir = os.path.join(f"{backupdrive}:", "backup_" + socket.gethostname())
@@ -134,9 +145,8 @@ backupdir = os.path.join(f"{backupdrive}:", "backup_" + socket.gethostname())
 if not os.path.isdir(backupdir):
     os.mkdir(backupdir)
 
-with open(os.path.join(os.path.abspath(os.curdir), 'paths.txt'), 'r') as f:
-    paths = f.read().splitlines()
-logger.debug(f"Found following paths in file: {paths}")
+config = Config() 
+logger.debug(f"Found following paths in file: {config.paths}")
 
 # Backup
 if args.backup or args.check:
@@ -145,7 +155,7 @@ if args.backup or args.check:
         try:
             for file in os.listdir(path):
                 originpath = os.path.join(path, file)
-                if os.path.isdir(originpath) and originpath not in paths:
+                if os.path.isdir(originpath) and originpath not in paths and originpath not in config.exclude:
                     paths.append(originpath)
                     backup(originpath)
                 elif os.path.isfile(originpath):
@@ -154,7 +164,6 @@ if args.backup or args.check:
         except PermissionError:
             logger.error(create_log_msg(path, "NO ACCESS"))
         except Exception as err:
-            # do something with error
             logging.critical(err)
 
 paths = list(os.path.join(backupdir, x) for x in os.listdir(backupdir))
