@@ -4,7 +4,7 @@ Backup tool for windows
 
 # TODO: logging to a file
 # TODO: config file with paths to check and paths to ignore
-# TODO: cleanup mode to remove files from backup that do not exist in origin
+# TODO: delete excluded/ignored paths from backup that still exist on origin
 # TODO: count of integrity check
 
 import logging
@@ -12,7 +12,7 @@ import os
 import socket
 import argparse
 import hashlib
-from shutil import copy2
+import shutil
 
 ### CONSTANTS ###
 BUF_SIZE = 1048576  # 1 MB
@@ -27,6 +27,8 @@ parser.add_argument('-v', action='count', default=0, dest='verbosity',
                     help='set the verbosity level of the console output')
 parser.add_argument('-q', '--quiet', action='store_true', default=False,
                     help='no console output')
+parser.add_argument('-d', '--delete', action='store_true', default=False,
+                    help='delete files from backup drive that do not exist on the origin device')
 args = parser.parse_args()
 
 # Default to creating backup
@@ -54,6 +56,18 @@ create_log_msg = lambda file, status: "{file:{width}}{status}".format(file=file,
 
 ### FUNCTIONS ###
 make_backuppath = lambda x: os.path.join(backupdir, x.replace(":", "", 1))
+def reverse_backuppath(x):
+    """Derive the origin path from the backup path.
+    Does the reverse of make_backuppath()
+    """
+    x = x[len(backupdir):]
+    if x[0] == "\\":
+        x = x[1:]
+    if len(x) == 1:
+        x += ":\\"
+    else:
+        x = x.replace("\\", ":\\", 1)
+    return x
 
 def backup(origin):
     """
@@ -78,7 +92,7 @@ def backup(origin):
                 logger.warning(create_log_msg(origin, "UPDATE"))
         else:
             logger.warning(create_log_msg(origin, "ADD"))
-        copy2(origin, backuppath)
+        shutil.copy2(origin, backuppath)
 
 def check_integrity(origin):
     """
@@ -125,16 +139,38 @@ with open(os.path.join(os.path.abspath(os.curdir), 'paths.txt'), 'r') as f:
 logger.debug(f"Found following paths in file: {paths}")
 
 # Backup
-for path in paths:
-    backup(path)
-    try:
+if args.backup or args.check:
+    for path in paths:
+        backup(path)
+        try:
+            for file in os.listdir(path):
+                originpath = os.path.join(path, file)
+                if os.path.isdir(originpath) and originpath not in paths:
+                    paths.append(originpath)
+                    backup(originpath)
+                elif os.path.isfile(originpath):
+                    backup(originpath)
+                    check_integrity(originpath)
+        except PermissionError:
+            logger.error(create_log_msg(path, "NO ACCESS"))
+        except Exception as err:
+            # do something with error
+            logging.critical(err)
+
+paths = list(os.path.join(backupdir, x) for x in os.listdir(backupdir))
+# Clean up
+if args.delete:
+    for path in paths:
+        if not os.path.exists(reverse_backuppath(path)):
+            logger.error(create_log_msg(path, "DELETE"))
+            shutil.rmtree(path)
+            continue
         for file in os.listdir(path):
-            originpath = os.path.join(path, file)
-            if os.path.isdir(originpath) and originpath not in paths:
-                paths.append(originpath)
-                backup(originpath)
-            elif os.path.isfile(originpath):
-                backup(originpath)
-                check_integrity(originpath)
-    except PermissionError:
-        logger.error(create_log_msg(path, "NO ACCESS"))
+            filepath = os.path.join(path, file)
+            if os.path.isdir(filepath):
+                paths.append(filepath)
+            else:
+                if not os.path.exists(reverse_backuppath(filepath)):
+                    logger.error(create_log_msg(filepath, "DELETE"))
+                    os.remove(filepath)
+
