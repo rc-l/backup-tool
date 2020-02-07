@@ -4,6 +4,7 @@ Backup tool for windows
 
 # TODO: count of integrity check
 # TODO: take backup drive as parameter when run
+# TODO: split logging into logger to explain what happens to files and logger for problems the script might encounter
 
 import logging
 import os
@@ -41,6 +42,8 @@ parser.add_argument('-q', '--quiet', action='store_true', default=False,
                     help='no console output')
 parser.add_argument('-d', '--delete', action='store_true', default=False,
                     help='delete files from backup drive that do not exist on the origin device')
+parser.add_argument('-s', '--shutdown', action='store_true', default=False,
+                    help='shutdown the machine after script is done')
 args = parser.parse_args()
 
 # Default to creating backup
@@ -200,3 +203,7 @@ if args.delete:
             logger.error(create_log_msg(path, "NO ACCESS"))
         except Exception as err:
             logging.critical(err)
+
+if args.shutdown:
+    logger.warning("power off machine")
+    os.system('shutdown -s')
