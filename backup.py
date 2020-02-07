@@ -2,7 +2,6 @@
 Backup tool for windows
 """
 
-# TODO: logging to a file
 # TODO: count of integrity check
 # TODO: take backup drive as parameter when run
 
@@ -16,6 +15,19 @@ import yaml
 
 ### CONSTANTS ###
 BUF_SIZE = 1048576  # 1 MB
+
+### CONFIG LOADING ###
+class Config:
+    """Class for configuration info"""
+    def __init__(self):
+        with open(os.path.join(os.path.abspath(os.curdir), 'config.yaml'), 'r') as f:
+            self.config = yaml.load(f)
+
+        self.paths = self.config.get('paths', [])
+        self.exclude = self.config.get('exclude', [])
+        self.logfile = self.config.get('logfile')
+
+config = Config()
 
 ### ARGUMENT PARSING ###
 parser = argparse.ArgumentParser(description=__doc__)
@@ -36,23 +48,28 @@ if not any(vars(args).values()):
     args.backup = True
 
 ### LOGGING ###
+if config.logfile:
+    ch = logging.FileHandler(config.logfile, 'a')
+    create_log_msg = lambda file, status: "file={file} status={status}".format(file=file, status=status)
+    formatter = logging.Formatter('{asctime} - {levelname} - {lineno} - {message}', style='{')
+else:
+    ch = logging.StreamHandler()
+    create_log_msg = lambda file, status: "{file:{width}}{status}".format(file=file, status=status, width=os.get_terminal_size()[0]-len(status)-2)
+    formatter = logging.Formatter('{message}', style='{')
+
 log_levels = {
     0: logging.WARNING,
     1: logging.INFO,
     2: logging.DEBUG
 }
 logger = logging.getLogger("screenlog")
-ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
-formatter = logging.Formatter('{message}', style='{')
 ch.setFormatter(formatter)
 if args.verbosity > 2:
     args.verbosity = 2
 logger.setLevel(log_levels[args.verbosity])
 logger.addHandler(ch)
 logger.disabled = args.quiet
-
-create_log_msg = lambda file, status: "{file:{width}}{status}".format(file=file, status=status, width=os.get_terminal_size()[0]-len(status)-2)
 
 ### FUNCTIONS ###
 make_backuppath = lambda x: os.path.join(backupdir, x.replace(":", "", 1))
@@ -127,15 +144,6 @@ def check_integrity(origin):
         else:
             logger.error(create_log_msg(backuppath, "CORRUPTED"))
 
-class Config:
-    """Class for configuration info"""
-    def __init__(self):
-        with open(os.path.join(os.path.abspath(os.curdir), 'config.yaml'), 'r') as f:
-            self.config = yaml.load(f)
-
-        self.paths = self.config.get('paths', [])
-        self.exclude = self.config.get('exclude', [])
-
 ### MAIN PROCESS ###
 backupdrive = "H"
 backupdir = os.path.join(f"{backupdrive}:\\", "backup_" + socket.gethostname())
@@ -143,11 +151,11 @@ backupdir = os.path.join(f"{backupdrive}:\\", "backup_" + socket.gethostname())
 if not os.path.isdir(backupdir):
     os.mkdir(backupdir)
 
-config = Config() 
 logger.debug(f"Found following paths in file: {config.paths}")
 
 # Backup
 if args.backup or args.check:
+    paths = config.paths
     for path in paths:
         backup(path)
         try:
