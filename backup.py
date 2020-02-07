@@ -3,8 +3,6 @@ Backup tool for windows
 """
 
 # TODO: logging to a file
-# TODO: config file with paths to check and paths to ignore
-# TODO: delete excluded/ignored paths from backup that still exist on origin
 # TODO: count of integrity check
 # TODO: take backup drive as parameter when run
 
@@ -140,7 +138,7 @@ class Config:
 
 ### MAIN PROCESS ###
 backupdrive = "H"
-backupdir = os.path.join(f"{backupdrive}:", "backup_" + socket.gethostname())
+backupdir = os.path.join(f"{backupdrive}:\\", "backup_" + socket.gethostname())
 
 if not os.path.isdir(backupdir):
     os.mkdir(backupdir)
@@ -166,20 +164,31 @@ if args.backup or args.check:
         except Exception as err:
             logging.critical(err)
 
+# Get all the paths from the backup directory
 paths = list(os.path.join(backupdir, x) for x in os.listdir(backupdir))
 # Clean up
 if args.delete:
     for path in paths:
-        if not os.path.exists(reverse_backuppath(path)):
-            logger.error(create_log_msg(path, "DELETE"))
-            shutil.rmtree(path)
-            continue
-        for file in os.listdir(path):
-            filepath = os.path.join(path, file)
-            if os.path.isdir(filepath):
-                paths.append(filepath)
-            else:
-                if not os.path.exists(reverse_backuppath(filepath)):
-                    logger.error(create_log_msg(filepath, "DELETE"))
-                    os.remove(filepath)
-
+        originpath = reverse_backuppath(path)
+        try:
+            # Delete a folder if it does not exist on the origin device or if it is set to be excluded.
+            # Using startswith() because the exclusion folder and everything in it should be excluded from backup
+            if not os.path.exists(originpath) or any(originpath.startswith(x) for x in config.exclude):
+                logger.error(create_log_msg(path, "DELETE"))
+                shutil.rmtree(path)
+                continue
+            for file in os.listdir(path):
+                filepath = os.path.join(path, file)
+                # Extend the path list with new directories found for recursive actions
+                if os.path.isdir(filepath):
+                    paths.append(filepath)
+                else:
+                    # same logic as folder deletion
+                    originpath = reverse_backuppath(filepath)
+                    if not os.path.exists(originpath) or any(originpath.startswith(x) for x in config.exclude):
+                        logger.error(create_log_msg(filepath, "DELETE"))
+                        os.remove(filepath)
+        except PermissionError:
+            logger.error(create_log_msg(path, "NO ACCESS"))
+        except Exception as err:
+            logging.critical(err)
